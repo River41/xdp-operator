@@ -28,5 +28,28 @@ go.work.sum
 .env
 
 # Editor/IDE
-# .idea/
-# .vscode/
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Binaries (Go build artifacts)
+bin/
+/out/
+/dist/
+
+# eBPF build
+*.o
+*.skel.h
+
+# Test tools and cluster temporary files
+kubeconfig
+.kube/
+
+# Dependencies
+vendor/
+
+# MacOS files
+.DS_Store
+.AppleDouble
+.LSOverride
