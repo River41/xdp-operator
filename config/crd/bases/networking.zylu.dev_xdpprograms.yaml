@@ -1,0 +1,92 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: xdpprograms.networking.zylu.dev
+spec:
+  group: networking.zylu.dev
+  names:
+    kind: XdpProgram
+    listKind: XdpProgramList
+    plural: xdpprograms
+    singular: xdpprogram
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: XdpProgram is the Schema for the xdpprograms API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: spec defines the desired state of XdpProgram
+            properties:
+              bpfPath:
+                description: BpfPath is the absolute path on the node to the compiled
+                  eBPF bytecode object file.
+                type: string
+              interface:
+                description: Interface is the name of the target network interface
+                  to attach the XDP program to (e.g., "eth0").
+                minLength: 1
+                type: string
+              mode:
+                default: generic
+                description: |-
+                  Mode defines the XDP attach mode.
+                  - "generic": Generic mode, used when the driver lacks native support. Lower performance.
+                  - "native": Native driver mode, offers high performance and requires network driver support.
+                  - "offload": Hardware offload mode, provides the highest performance and requires network hardware support.
+                enum:
+                - generic
+                - native
+                - offload
+                type: string
+            required:
+            - bpfPath
+            - interface
+            type: object
+          status:
+            description: status defines the observed state of XdpProgram
+            properties:
+              loadedAt:
+                description: LoadedAt records the timestamp of the last successful
+                  program attachment.
+                format: date-time
+                type: string
+              message:
+                description: Message provides detailed status information, including
+                  any error messages.
+                type: string
+              ready:
+                description: Ready indicates whether the XDP program has been successfully
+                  attached on the target node.
+                type: boolean
+            required:
+            - ready
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

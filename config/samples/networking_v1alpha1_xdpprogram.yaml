@@ -1,0 +1,14 @@
+apiVersion: networking.zylu.dev/v1alpha1
+kind: XdpProgram
+metadata:
+  labels:
+    app.kubernetes.io/name: xdp-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: xdpprogram-sample
+spec:
+  # The network interface to attach the XDP program to.
+  interface: eth0
+  # Path to the BPF object file to be loaded.
+  bpfPath: /tmp/hello.o
+  # The attach mode for the XDP program (e.g., generic, native, offload).
+  mode: generic
