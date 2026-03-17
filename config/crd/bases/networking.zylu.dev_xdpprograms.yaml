@@ -1,0 +1,87 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: xdpprograms.networking.zylu.dev
+spec:
+  group: networking.zylu.dev
+  names:
+    kind: XdpProgram
+    listKind: XdpProgramList
+    plural: xdpprograms
+    singular: xdpprogram
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: XdpProgram is the Schema for the xdpprograms API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: spec defines the desired state of XdpProgram
+            properties:
+              bpfPath:
+                description: BpfPath 是宿主机上编译好的 eBPF 字节码 (.o 文件) 的绝对路径
+                type: string
+              interface:
+                description: 'Interface 是 XDP 程序要挂载的目标网卡名称 (例如: eth0, vethxxx)'
+                minLength: 1
+                type: string
+              mode:
+                default: generic
+                description: |-
+                  Mode 定义了 XDP 的挂载模式
+                  generic: 通用模式（驱动不支持时使用，性能稍低）
+                  native: 驱动原生模式（性能高，需要网卡驱动支持）
+                  offload: 硬件卸载模式（性能最高，需要网卡硬件支持）
+                enum:
+                - generic
+                - native
+                - offload
+                type: string
+            required:
+            - bpfPath
+            - interface
+            type: object
+          status:
+            description: status defines the observed state of XdpProgram
+            properties:
+              loadedAt:
+                description: LoadedAt 记录最后一次挂载成功的时间
+                format: date-time
+                type: string
+              message:
+                description: Message 记录详细的状态信息，比如报错信息
+                type: string
+              ready:
+                description: Ready 表示 XDP 程序是否已在所有目标节点成功挂载
+                type: boolean
+            required:
+            - ready
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
