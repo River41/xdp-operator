@@ -52,6 +52,11 @@ var _ = Describe("XdpProgram Controller", func() {
 						Namespace: "default",
 					},
 					// TODO(user): Specify other spec details if needed.
+					Spec: networkingv1alpha1.XdpProgramSpec{
+						Interface: "eth0",         // Satisfy MinLength=1
+						BpfPath:   "/tmp/hello.o", // Satisfy Required
+						Mode:      "generic",      // Satisfy Enum check
+					},
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
 			}

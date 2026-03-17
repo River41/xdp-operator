@@ -40,19 +40,21 @@ spec:
             description: spec defines the desired state of XdpProgram
             properties:
               bpfPath:
-                description: BpfPath 是宿主机上编译好的 eBPF 字节码 (.o 文件) 的绝对路径
+                description: BpfPath is the absolute path on the node to the compiled
+                  eBPF bytecode object file.
                 type: string
               interface:
-                description: 'Interface 是 XDP 程序要挂载的目标网卡名称 (例如: eth0, vethxxx)'
+                description: Interface is the name of the target network interface
+                  to attach the XDP program to (e.g., "eth0").
                 minLength: 1
                 type: string
               mode:
                 default: generic
                 description: |-
-                  Mode 定义了 XDP 的挂载模式
-                  generic: 通用模式（驱动不支持时使用，性能稍低）
-                  native: 驱动原生模式（性能高，需要网卡驱动支持）
-                  offload: 硬件卸载模式（性能最高，需要网卡硬件支持）
+                  Mode defines the XDP attach mode.
+                  - "generic": Generic mode, used when the driver lacks native support. Lower performance.
+                  - "native": Native driver mode, offers high performance and requires network driver support.
+                  - "offload": Hardware offload mode, provides the highest performance and requires network hardware support.
                 enum:
                 - generic
                 - native
@@ -66,14 +68,17 @@ spec:
             description: status defines the observed state of XdpProgram
             properties:
               loadedAt:
-                description: LoadedAt 记录最后一次挂载成功的时间
+                description: LoadedAt records the timestamp of the last successful
+                  program attachment.
                 format: date-time
                 type: string
               message:
-                description: Message 记录详细的状态信息，比如报错信息
+                description: Message provides detailed status information, including
+                  any error messages.
                 type: string
               ready:
-                description: Ready 表示 XDP 程序是否已在所有目标节点成功挂载
+                description: Ready indicates whether the XDP program has been successfully
+                  attached on the target node.
                 type: boolean
             required:
             - ready
