@@ -18,11 +18,13 @@ package controller
 
 import (
 	"context"
+	"time"
 
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	networkingv1alpha1 "github.com/River41/xdp-operator/api/v1alpha1"
 )
@@ -47,11 +49,67 @@ type XdpProgramReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.23.1/pkg/reconcile
 func (r *XdpProgramReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = logf.FromContext(ctx)
+	// Initialize the logger with the request context
+	logger := log.FromContext(ctx)
 
-	// TODO(user): your logic here
+	// 1. Fetch the XdpProgram instance from the Kubernetes API
+	// We use a pointer to an empty struct to hold the data we retrieve
+	xdp := &networkingv1alpha1.XdpProgram{}
+	if err := r.Get(ctx, req.NamespacedName, xdp); err != nil {
+		if errors.IsNotFound(err) {
+			// The resource was deleted. We should stop reconciliation.
+			// In a real eBPF operator, you might trigger a cleanup (unmount) here.
+			logger.Info("XdpProgram resource not found. Ignoring since object must be deleted")
+			return ctrl.Result{}, nil
+		}
+		// Error reading the object - requeue the request to try again later
+		logger.Error(err, "Failed to get XdpProgram")
+		return ctrl.Result{}, err
+	}
 
+	// 2. Logic: Validate the desired state
+	// Even though we have CRD markers, it's good practice to log what we're doing
+	logger.Info("Reconciling XdpProgram",
+		"Name", xdp.Name,
+		"Interface", xdp.Spec.Interface,
+		"Mode", xdp.Spec.Mode)
+
+	// 3. Logic: Check if the eBPF program is already loaded (Idempotency)
+	// For now, we simulate the "Action" part.
+	// Later, you will replace this with actual Netlink or cilium/ebpf calls.
+	isLoaded := r.checkIfAlreadyLoaded(xdp.Spec.Interface)
+
+	if !isLoaded {
+		logger.Info("Loading XDP program onto interface", "interface", xdp.Spec.Interface)
+
+		// Simulate loading logic
+		// err := r.loadXdp(xdp.Spec.Interface, xdp.Spec.BpfPath, xdp.Spec.Mode)
+		// if err != nil { ... }
+	} else {
+		logger.Info("XDP program already present, skipping attachment", "interface", xdp.Spec.Interface)
+	}
+
+	// 4. Update the Status of our Custom Resource
+	// This tells the user (and kubectl) that the work is done
+	if !xdp.Status.Ready {
+		xdp.Status.Ready = true
+		// Use RFC3339 format for standard Kubernetes timestamps
+		xdp.Status.AttachedAt = time.Now().Format(time.RFC3339)
+		xdp.Status.Message = "XDP program successfully reconciled"
+
+		if err := r.Status().Update(ctx, xdp); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
+	// Return a successful result to stop the current loop
 	return ctrl.Result{}, nil
+}
+
+// Helper function to check the current state of the system
+func (r *XdpProgramReconciler) checkIfAlreadyLoaded(iface string) bool {
+	// TODO: Use netlink to check if an XDP program is attached to the interface
+	return false
 }
 
 // SetupWithManager sets up the controller with the Manager.

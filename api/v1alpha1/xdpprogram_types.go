@@ -34,7 +34,7 @@ type XdpProgramSpec struct {
 	// +kubebuilder:validation:Required
 	BpfPath string `json:"bpfPath"`
 
-	// Mode defines the XDP attach mode.
+	// Mode defines the XDP attach mode.v
 	// - "generic": Generic mode, used when the driver lacks native support. Lower performance.
 	// - "native": Native driver mode, offers high performance and requires network driver support.
 	// - "offload": Hardware offload mode, provides the highest performance and requires network hardware support.
@@ -56,10 +56,17 @@ type XdpProgramStatus struct {
 	// Message provides detailed status information, including any error messages.
 	// +optional
 	Message string `json:"message,omitempty"`
+
+	// +optional
+	AttachedAt string `json:"attachedAt,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Ready",type="boolean",JSONPath=".status.ready"
+// +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.message"
+// +kubebuilder:printcolumn:name="Interface",type="string",JSONPath=".spec.interface"
+// +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
 // XdpProgram is the Schema for the xdpprograms API
 type XdpProgram struct {
