@@ -50,7 +50,7 @@ type XdpProgramReconciler struct {
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.23.1/pkg/reconcile
 func (r *XdpProgramReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	// Initialize the logger with the request context
-	log := log.FromContext(ctx)
+	logger := log.FromContext(ctx)
 
 	// 1. Fetch the XdpProgram instance from the Kubernetes API
 	// We use a pointer to an empty struct to hold the data we retrieve
@@ -59,17 +59,17 @@ func (r *XdpProgramReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		if errors.IsNotFound(err) {
 			// The resource was deleted. We should stop reconciliation.
 			// In a real eBPF operator, you might trigger a cleanup (unmount) here.
-			log.Info("XdpProgram resource not found. Ignoring since object must be deleted")
+			logger.Info("XdpProgram resource not found. Ignoring since object must be deleted")
 			return ctrl.Result{}, nil
 		}
 		// Error reading the object - requeue the request to try again later
-		log.Error(err, "Failed to get XdpProgram")
+		logger.Error(err, "Failed to get XdpProgram")
 		return ctrl.Result{}, err
 	}
 
 	// 2. Logic: Validate the desired state
 	// Even though we have CRD markers, it's good practice to log what we're doing
-	log.Info("Reconciling XdpProgram",
+	logger.Info("Reconciling XdpProgram",
 		"Name", xdp.Name,
 		"Interface", xdp.Spec.Interface,
 		"Mode", xdp.Spec.Mode)
@@ -80,13 +80,13 @@ func (r *XdpProgramReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	isLoaded := r.checkIfAlreadyLoaded(xdp.Spec.Interface)
 
 	if !isLoaded {
-		log.Info("Loading XDP program onto interface", "interface", xdp.Spec.Interface)
+		logger.Info("Loading XDP program onto interface", "interface", xdp.Spec.Interface)
 
 		// Simulate loading logic
 		// err := r.loadXdp(xdp.Spec.Interface, xdp.Spec.BpfPath, xdp.Spec.Mode)
 		// if err != nil { ... }
 	} else {
-		log.Info("XDP program already present, skipping attachment", "interface", xdp.Spec.Interface)
+		logger.Info("XDP program already present, skipping attachment", "interface", xdp.Spec.Interface)
 	}
 
 	// 4. Update the Status of our Custom Resource
