@@ -14,7 +14,20 @@ spec:
     singular: xdpprogram
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .status.ready
+      name: Ready
+      type: boolean
+    - jsonPath: .status.message
+      name: Status
+      type: string
+    - jsonPath: .spec.interface
+      name: Interface
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: XdpProgram is the Schema for the xdpprograms API
@@ -51,7 +64,7 @@ spec:
               mode:
                 default: generic
                 description: |-
-                  Mode defines the XDP attach mode.
+                  Mode defines the XDP attach mode.v
                   - "generic": Generic mode, used when the driver lacks native support. Lower performance.
                   - "native": Native driver mode, offers high performance and requires network driver support.
                   - "offload": Hardware offload mode, provides the highest performance and requires network hardware support.
@@ -67,6 +80,8 @@ spec:
           status:
             description: status defines the observed state of XdpProgram
             properties:
+              attachedAt:
+                type: string
               loadedAt:
                 description: LoadedAt records the timestamp of the last successful
                   program attachment.
