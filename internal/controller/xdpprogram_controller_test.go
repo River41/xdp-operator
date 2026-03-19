@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"os"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -33,6 +34,7 @@ import (
 var _ = Describe("XdpProgram Controller", func() {
 	Context("When reconciling a resource", func() {
 		const resourceName = "test-resource"
+		const testNodeName = "test-node"
 
 		ctx := context.Background()
 
@@ -51,11 +53,11 @@ var _ = Describe("XdpProgram Controller", func() {
 						Name:      resourceName,
 						Namespace: "default",
 					},
-					// TODO(user): Specify other spec details if needed.
 					Spec: networkingv1alpha1.XdpProgramSpec{
-						Interface: "eth0",         // Satisfy MinLength=1
-						BpfPath:   "/tmp/hello.o", // Satisfy Required
-						Mode:      "generic",      // Satisfy Enum check
+						Interface: "non-existent-iface",
+						BpfPath:   "/tmp/fake.o",
+						Mode:      "generic",
+						NodeName:  testNodeName,
 					},
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
@@ -71,19 +73,31 @@ var _ = Describe("XdpProgram Controller", func() {
 			By("Cleanup the specific resource instance XdpProgram")
 			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
 		})
-		It("should successfully reconcile the resource", func() {
+
+		It("should update status when interface is not found", func() {
+			// Set the NODE_NAME env var to match the resource's spec.nodeName
+			// This simulates the controller running on the target node.
+			Expect(os.Setenv("NODE_NAME", testNodeName)).To(Succeed())
+			defer os.Unsetenv("NODE_NAME")
+
 			By("Reconciling the created resource")
 			controllerReconciler := &XdpProgramReconciler{
 				Client: k8sClient,
 				Scheme: k8sClient.Scheme(),
 			}
 
+			// We expect the reconcile to not return an error, but to update the status.
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: typeNamespacedName,
 			})
 			Expect(err).NotTo(HaveOccurred())
-			// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
-			// Example: If you expect a certain status condition after reconciliation, verify it here.
+
+			// Verify the status was updated correctly.
+			reconciledXdp := &networkingv1alpha1.XdpProgram{}
+			Eventually(func() bool {
+				k8sClient.Get(ctx, typeNamespacedName, reconciledXdp)
+				return !reconciledXdp.Status.Ready && reconciledXdp.Status.Message == "Interface not found on host"
+			}).Should(BeTrue())
 		})
 	})
 })

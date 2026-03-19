@@ -18,16 +18,23 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	networkingv1alpha1 "github.com/River41/xdp-operator/api/v1alpha1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/vishvananda/netlink"
 )
+
+const xdpProgramFinalizer = "networking.zylu.dev/finalizer"
 
 // XdpProgramReconciler reconciles a XdpProgram object
 type XdpProgramReconciler struct {
@@ -49,55 +56,109 @@ type XdpProgramReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.23.1/pkg/reconcile
 func (r *XdpProgramReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	// Initialize the logger with the request context
 	logger := log.FromContext(ctx)
 
-	// 1. Fetch the XdpProgram instance from the Kubernetes API
-	// We use a pointer to an empty struct to hold the data we retrieve
+	// 1. Fetch the XdpProgram instance
 	xdp := &networkingv1alpha1.XdpProgram{}
 	if err := r.Get(ctx, req.NamespacedName, xdp); err != nil {
 		if errors.IsNotFound(err) {
-			// The resource was deleted. We should stop reconciliation.
-			// In a real eBPF operator, you might trigger a cleanup (unmount) here.
 			logger.Info("XdpProgram resource not found. Ignoring since object must be deleted")
 			return ctrl.Result{}, nil
 		}
-		// Error reading the object - requeue the request to try again later
 		logger.Error(err, "Failed to get XdpProgram")
 		return ctrl.Result{}, err
 	}
 
-	// 2. Logic: Validate the desired state
-	// Even though we have CRD markers, it's good practice to log what we're doing
+	// 2. Handle finalizer logic for deletion
+	// WARNING: The logic to filter reconciliation to a specific node has been removed.
+	// If this controller is deployed as a DaemonSet, every pod will attempt to reconcile
+	// this resource, leading to race conditions and incorrect status updates.
+	// This controller will now attempt to reconcile the resource on whatever node it is running on,
+	// which may not match the `spec.nodeName` field.
+	if !xdp.ObjectMeta.DeletionTimestamp.IsZero() {
+		if controllerutil.ContainsFinalizer(xdp, xdpProgramFinalizer) {
+			logger.Info("Performing cleanup for XdpProgram")
+			if err := r.unloadXdp(xdp.Spec.Interface); err != nil {
+				// If cleanup fails, we don't remove the finalizer so we can retry.
+				logger.Error(err, "Failed to unload XDP program during cleanup")
+				return ctrl.Result{}, err
+			}
+
+			logger.Info("XDP program successfully detached", "interface", xdp.Spec.Interface)
+
+			// Remove the finalizer. Once all finalizers are removed, the object will be deleted.
+			controllerutil.RemoveFinalizer(xdp, xdpProgramFinalizer)
+			if err := r.Update(ctx, xdp); err != nil {
+				logger.Error(err, "Failed to remove finalizer")
+				return ctrl.Result{}, err
+			}
+		}
+		// Stop reconciliation as the item is being deleted
+		return ctrl.Result{}, nil
+	}
+
+	// Add finalizer for this CR if it doesn't exist. This allows us to handle cleanup.
+	if !controllerutil.ContainsFinalizer(xdp, xdpProgramFinalizer) {
+		controllerutil.AddFinalizer(xdp, xdpProgramFinalizer)
+		if err := r.Update(ctx, xdp); err != nil {
+			logger.Error(err, "Failed to add finalizer")
+			return ctrl.Result{}, err
+		}
+	}
+
+	// 3. Reconcile the desired state
 	logger.Info("Reconciling XdpProgram",
 		"Name", xdp.Name,
 		"Interface", xdp.Spec.Interface,
 		"Mode", xdp.Spec.Mode)
 
-	// 3. Logic: Check if the eBPF program is already loaded (Idempotency)
-	// For now, we simulate the "Action" part.
-	// Later, you will replace this with actual Netlink or cilium/ebpf calls.
-	isLoaded := r.checkIfAlreadyLoaded(xdp.Spec.Interface)
+	// Check if the network interface exists
+	link, err := netlink.LinkByName(xdp.Spec.Interface)
+	if err != nil {
+		logger.Error(err, "Unable to find interface", "interface", xdp.Spec.Interface)
+		xdp.Status.Ready = false
+		xdp.Status.Message = "Interface not found on host"
+		if updateErr := r.Status().Update(ctx, xdp); updateErr != nil {
+			logger.Error(updateErr, "Failed to update status for missing interface")
+			return ctrl.Result{}, updateErr
+		}
+		// Do not requeue, as the interface is missing. The user must fix the spec.
+		return ctrl.Result{}, nil
+	}
+	logger.Info("Found interface", "Index", link.Attrs().Index)
+
+	// 4. Logic: Check if the eBPF program is already loaded (Idempotency)
+	// This is a placeholder for actual state checking.
+	isLoaded, err := r.checkIfAlreadyLoaded(link)
+	if err != nil {
+		logger.Error(err, "Failed to check if XDP program is loaded")
+		// Requeue to try again
+		return ctrl.Result{}, err
+	}
 
 	if !isLoaded {
 		logger.Info("Loading XDP program onto interface", "interface", xdp.Spec.Interface)
-
-		// Simulate loading logic
+		// Simulate loading logic. In a real implementation, you would:
+		// - Load the eBPF object file (xdp.Spec.BpfPath)
+		// - Attach the program to the interface (link) with the specified mode (xdp.Spec.Mode)
 		// err := r.loadXdp(xdp.Spec.Interface, xdp.Spec.BpfPath, xdp.Spec.Mode)
 		// if err != nil { ... }
 	} else {
 		logger.Info("XDP program already present, skipping attachment", "interface", xdp.Spec.Interface)
 	}
 
-	// 4. Update the Status of our Custom Resource
-	// This tells the user (and kubectl) that the work is done
-	if !xdp.Status.Ready {
+	// 5. Update the Status to reflect success
+	// We only update if something has changed to avoid unnecessary writes.
+	// If the status is not yet "Ready", we'll update it.
+	if !xdp.Status.Ready || xdp.Status.Message != "XDP program successfully reconciled" {
 		xdp.Status.Ready = true
-		// Use RFC3339 format for standard Kubernetes timestamps
-		xdp.Status.AttachedAt = time.Now().Format(time.RFC3339)
 		xdp.Status.Message = "XDP program successfully reconciled"
+		now := metav1.NewTime(time.Now())
+		xdp.Status.LoadedAt = &now
 
+		logger.Info("Updating status to reflect successful reconciliation")
 		if err := r.Status().Update(ctx, xdp); err != nil {
+			logger.Error(err, "Failed to update XdpProgram status after reconciliation")
 			return ctrl.Result{}, err
 		}
 	}
@@ -107,9 +168,32 @@ func (r *XdpProgramReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 }
 
 // Helper function to check the current state of the system
-func (r *XdpProgramReconciler) checkIfAlreadyLoaded(iface string) bool {
-	// TODO: Use netlink to check if an XDP program is attached to the interface
-	return false
+func (r *XdpProgramReconciler) checkIfAlreadyLoaded(link netlink.Link) (bool, error) {
+	// The Xdp info is part of the link attributes.
+	// We need to re-fetch the link to get the most up-to-date attributes,
+	// including any attached XDP program info.
+	freshLink, err := netlink.LinkByIndex(link.Attrs().Index)
+	if err != nil {
+		return false, fmt.Errorf("failed to get link by index %d: %w", link.Attrs().Index, err)
+	}
+
+	attrs := freshLink.Attrs()
+	if attrs.Xdp != nil && attrs.Xdp.Attached {
+		return true, nil
+	}
+	return false, nil
+}
+
+// unloadXdp detaches an XDP program from a given interface.
+func (r *XdpProgramReconciler) unloadXdp(ifaceName string) error {
+	link, err := netlink.LinkByName(ifaceName)
+	if err != nil {
+		// If the interface is already gone, we can consider the cleanup successful.
+		return client.IgnoreNotFound(err)
+	}
+
+	// Setting fd to -1 detaches the program.
+	return netlink.LinkSetXdpFd(link, -1)
 }
 
 // SetupWithManager sets up the controller with the Manager.
