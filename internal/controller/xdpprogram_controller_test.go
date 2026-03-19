@@ -47,7 +47,7 @@ var _ = Describe("XdpProgram Controller", func() {
 		xdpprogram := &networkingv1alpha1.XdpProgram{}
 
 		BeforeEach(func() {
-			if os.Getenv("GITHUB_ACTIONS") == "true" {
+			if isCI() {
 				Skip("Skipping hardware-dependent tests in GitHub Actions")
 			}
 			By("creating the custom resource for the Kind XdpProgram")
@@ -109,7 +109,7 @@ var _ = Describe("XdpProgram Controller", func() {
 		})
 
 		It("should update status when BPF file is not found", func() {
-			if os.Getenv("GITHUB_ACTIONS") == "true" {
+			if isCI() {
 				Skip("Skipping this test in GitHub Actions because it needs a real kernel/netlink")
 			}
 			// This test requires root privileges to create a dummy network interface.
@@ -151,7 +151,7 @@ var _ = Describe("XdpProgram Controller", func() {
 		})
 
 		It("should update status when BPF file is invalid", func() {
-			if os.Getenv("GITHUB_ACTIONS") == "true" {
+			if isCI() {
 				Skip("Skipping this test in GitHub Actions because it needs a real kernel/netlink")
 			}
 			if os.Geteuid() != 0 {
@@ -184,3 +184,7 @@ var _ = Describe("XdpProgram Controller", func() {
 		})
 	})
 })
+
+func isCI() bool {
+	return os.Getenv("GITHUB_ACTIONS") == "true"
+}
