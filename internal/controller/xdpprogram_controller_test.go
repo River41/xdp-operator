@@ -106,6 +106,9 @@ var _ = Describe("XdpProgram Controller", func() {
 		})
 
 		It("should update status when BPF file is not found", func() {
+			if os.Getenv("GITHUB_ACTIONS") == "true" {
+				Skip("Skipping this test in GitHub Actions because it needs a real kernel/netlink")
+			}
 			// This test requires root privileges to create a dummy network interface.
 			// We skip it if the test is not run as root.
 			if os.Geteuid() != 0 {
@@ -145,6 +148,9 @@ var _ = Describe("XdpProgram Controller", func() {
 		})
 
 		It("should update status when BPF file is invalid", func() {
+			if os.Getenv("GITHUB_ACTIONS") == "true" {
+				Skip("Skipping this test in GitHub Actions because it needs a real kernel/netlink")
+			}
 			if os.Geteuid() != 0 {
 				Skip("Skipping test: requires root privileges to create a dummy network interface")
 			}
