@@ -83,7 +83,7 @@ func (r *XdpProgramReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	// 3. Handle finalizer logic for deletion
-	if !xdp.ObjectMeta.DeletionTimestamp.IsZero() {
+	if !xdp.DeletionTimestamp.IsZero() {
 		if controllerutil.ContainsFinalizer(xdp, xdpProgramFinalizer) {
 			logger.Info("Performing cleanup for XdpProgram")
 			if err := r.unloadXdp(xdp.Spec.Interface); err != nil {
