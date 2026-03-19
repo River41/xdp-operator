@@ -82,8 +82,9 @@ var _ = Describe("XdpProgram Controller", func() {
 
 			By("Reconciling the created resource")
 			controllerReconciler := &XdpProgramReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
+				Client:   k8sClient,
+				Scheme:   k8sClient.Scheme(),
+				NodeName: testNodeName,
 			}
 
 			// We expect the reconcile to not return an error, but to update the status.

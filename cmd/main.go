@@ -178,9 +178,15 @@ func main() {
 		os.Exit(1)
 	}
 
+	nodeName := os.Getenv("NODE_NAME")
+	if nodeName == "" {
+		nodeName = "xdp-dev-control-plane"
+	}
+
 	if err := (&controller.XdpProgramReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		NodeName: nodeName,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "XdpProgram")
 		os.Exit(1)

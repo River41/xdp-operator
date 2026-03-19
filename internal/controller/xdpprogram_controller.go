@@ -19,19 +19,20 @@ package controller
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
+	networkingv1alpha1 "github.com/River41/xdp-operator/api/v1alpha1"
+	"github.com/cilium/ebpf"
+	"github.com/cilium/ebpf/rlimit"
+	"github.com/vishvananda/netlink"
 	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-
-	networkingv1alpha1 "github.com/River41/xdp-operator/api/v1alpha1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
-	"github.com/vishvananda/netlink"
 )
 
 const xdpProgramFinalizer = "networking.zylu.dev/finalizer"
@@ -39,7 +40,8 @@ const xdpProgramFinalizer = "networking.zylu.dev/finalizer"
 // XdpProgramReconciler reconciles a XdpProgram object
 type XdpProgramReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme   *runtime.Scheme
+	NodeName string
 }
 
 // +kubebuilder:rbac:groups=networking.zylu.dev,resources=xdpprograms,verbs=get;list;watch;create;update;patch;delete
@@ -62,19 +64,25 @@ func (r *XdpProgramReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	xdp := &networkingv1alpha1.XdpProgram{}
 	if err := r.Get(ctx, req.NamespacedName, xdp); err != nil {
 		if errors.IsNotFound(err) {
-			logger.Info("XdpProgram resource not found. Ignoring since object must be deleted")
+			logger.Info("XdpProgram resource not found. Ignoring since object must be deleted.")
 			return ctrl.Result{}, nil
 		}
 		logger.Error(err, "Failed to get XdpProgram")
 		return ctrl.Result{}, err
 	}
 
-	// 2. Handle finalizer logic for deletion
-	// WARNING: The logic to filter reconciliation to a specific node has been removed.
-	// If this controller is deployed as a DaemonSet, every pod will attempt to reconcile
-	// this resource, leading to race conditions and incorrect status updates.
-	// This controller will now attempt to reconcile the resource on whatever node it is running on,
-	// which may not match the `spec.nodeName` field.
+	if err := rlimit.RemoveMemlock(); err != nil {
+		logger.Error(err, "unable to remove memlock")
+		os.Exit(1)
+	}
+
+	// 2. Check if this controller should reconcile this resource.
+	if xdp.Spec.NodeName != r.NodeName {
+		logger.Info("Skipping reconciliation, XdpProgram is not for this node", "XdpProgramNode", xdp.Spec.NodeName, "ThisNode", r.NodeName)
+		return ctrl.Result{}, nil
+	}
+
+	// 3. Handle finalizer logic for deletion
 	if !xdp.ObjectMeta.DeletionTimestamp.IsZero() {
 		if controllerutil.ContainsFinalizer(xdp, xdpProgramFinalizer) {
 			logger.Info("Performing cleanup for XdpProgram")
@@ -106,14 +114,14 @@ func (r *XdpProgramReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		}
 	}
 
-	// 3. Reconcile the desired state
+	// 4. Reconcile the desired state
 	logger.Info("Reconciling XdpProgram",
 		"Name", xdp.Name,
 		"Interface", xdp.Spec.Interface,
 		"Mode", xdp.Spec.Mode)
 
 	// Check if the network interface exists
-	link, err := netlink.LinkByName(xdp.Spec.Interface)
+	iface, err := netlink.LinkByName(xdp.Spec.Interface)
 	if err != nil {
 		logger.Error(err, "Unable to find interface", "interface", xdp.Spec.Interface)
 		xdp.Status.Ready = false
@@ -125,29 +133,34 @@ func (r *XdpProgramReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		// Do not requeue, as the interface is missing. The user must fix the spec.
 		return ctrl.Result{}, nil
 	}
-	logger.Info("Found interface", "Index", link.Attrs().Index)
+	logger.Info("Found interface", "Index", iface.Attrs().Index)
 
-	// 4. Logic: Check if the eBPF program is already loaded (Idempotency)
-	// This is a placeholder for actual state checking.
-	isLoaded, err := r.checkIfAlreadyLoaded(link)
-	if err != nil {
-		logger.Error(err, "Failed to check if XDP program is loaded")
-		// Requeue to try again
+	// Check if BPF file exists
+	if _, err := os.Stat(xdp.Spec.BpfPath); os.IsNotExist(err) {
+		logger.Error(err, "BPF object file not found", "path", xdp.Spec.BpfPath)
+		xdp.Status.Ready = false
+		xdp.Status.Message = fmt.Sprintf("BPF object file not found at %s", xdp.Spec.BpfPath)
+		if updateErr := r.Status().Update(ctx, xdp); updateErr != nil {
+			logger.Error(updateErr, "Failed to update status for missing BPF file")
+			return ctrl.Result{}, updateErr
+		}
+		// Do not requeue, user must fix the path.
+		return ctrl.Result{}, nil
+	}
+
+	// 5. Load and attach the XDP program
+	if err := r.loadAndAttachXdp(iface, xdp.Spec.BpfPath, xdp.Spec.Mode); err != nil {
+		logger.Error(err, "Failed to load and attach XDP program")
+		xdp.Status.Ready = false
+		xdp.Status.Message = fmt.Sprintf("Failed to load/attach XDP program: %v", err)
+		if updateErr := r.Status().Update(ctx, xdp); updateErr != nil {
+			logger.Error(updateErr, "Failed to update status after load failure")
+			return ctrl.Result{}, updateErr
+		}
 		return ctrl.Result{}, err
 	}
 
-	if !isLoaded {
-		logger.Info("Loading XDP program onto interface", "interface", xdp.Spec.Interface)
-		// Simulate loading logic. In a real implementation, you would:
-		// - Load the eBPF object file (xdp.Spec.BpfPath)
-		// - Attach the program to the interface (link) with the specified mode (xdp.Spec.Mode)
-		// err := r.loadXdp(xdp.Spec.Interface, xdp.Spec.BpfPath, xdp.Spec.Mode)
-		// if err != nil { ... }
-	} else {
-		logger.Info("XDP program already present, skipping attachment", "interface", xdp.Spec.Interface)
-	}
-
-	// 5. Update the Status to reflect success
+	// 6. Update the Status to reflect success
 	// We only update if something has changed to avoid unnecessary writes.
 	// If the status is not yet "Ready", we'll update it.
 	if !xdp.Status.Ready || xdp.Status.Message != "XDP program successfully reconciled" {
@@ -167,21 +180,69 @@ func (r *XdpProgramReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	return ctrl.Result{}, nil
 }
 
-// Helper function to check the current state of the system
-func (r *XdpProgramReconciler) checkIfAlreadyLoaded(link netlink.Link) (bool, error) {
-	// The Xdp info is part of the link attributes.
-	// We need to re-fetch the link to get the most up-to-date attributes,
-	// including any attached XDP program info.
-	freshLink, err := netlink.LinkByIndex(link.Attrs().Index)
+// loadAndAttachXdp loads the XDP program from the specified path and attaches it to the given interface.
+// This function is idempotent and will replace an existing program on the interface if necessary.
+func (r *XdpProgramReconciler) loadAndAttachXdp(iface netlink.Link, bpfPath, mode string) error {
+	// Load the BPF collection spec
+	collSpec, err := ebpf.LoadCollectionSpec(bpfPath)
 	if err != nil {
-		return false, fmt.Errorf("failed to get link by index %d: %w", link.Attrs().Index, err)
+		return fmt.Errorf("failed to load BPF collection spec from %s: %w", bpfPath, err)
 	}
 
-	attrs := freshLink.Attrs()
-	if attrs.Xdp != nil && attrs.Xdp.Attached {
-		return true, nil
+	// Find the first XDP program in the collection.
+	// A more robust solution might involve letting the user specify the program name in the XdpProgramSpec.
+	var progSpec *ebpf.ProgramSpec
+	for _, p := range collSpec.Programs {
+		if p.Type == ebpf.XDP {
+			progSpec = p
+			break
+		}
 	}
-	return false, nil
+	if progSpec == nil {
+		return fmt.Errorf("no XDP program found in %s", bpfPath)
+	}
+
+	// Load the program into the kernel.
+	coll, err := ebpf.NewCollection(collSpec)
+	if err != nil {
+		return fmt.Errorf("failed to create BPF collection: %w", err)
+	}
+	defer coll.Close()
+
+	xdpProg := coll.Programs[progSpec.Name]
+	if xdpProg == nil {
+		return fmt.Errorf("program %s not found in collection", progSpec.Name)
+	}
+
+	// Determine attach flags from the mode string.
+	// The flag constants were introduced in a later version of the netlink library.
+	// We use their literal values here for compatibility with older versions.
+	// The proper long-term fix is to update the dependency: `go get github.com/vishvananda/netlink@latest`
+	const (
+		xdpFlagsSkbMode = 1 << 1 // equivalent to netlink.XDP_FLAGS_SKB_MODE
+		xdpFlagsDrvMode = 1 << 2 // equivalent to netlink.XDP_FLAGS_DRV_MODE
+		xdpFlagsHwMode  = 1 << 3 // equivalent to netlink.XDP_FLAGS_HW_MODE
+	)
+	var flags int
+	switch mode {
+	case "generic":
+		flags = xdpFlagsSkbMode
+	case "native":
+		flags = xdpFlagsDrvMode
+	case "offload":
+		flags = xdpFlagsHwMode
+	default:
+		return fmt.Errorf("unknown XDP mode: %s", mode)
+	}
+
+	// Attach the program using its file descriptor. This will replace any existing program.
+	err = netlink.LinkSetXdpFdWithFlags(iface, xdpProg.FD(), flags)
+	if err != nil {
+		return err
+	}
+
+	log.Log.Info("Successfully attached XDP program to kernel", "interface", iface.Attrs().Name, "fd", xdpProg.FD())
+	return nil
 }
 
 // unloadXdp detaches an XDP program from a given interface.
@@ -198,6 +259,13 @@ func (r *XdpProgramReconciler) unloadXdp(ifaceName string) error {
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *XdpProgramReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	// In main.go, the reconciler should be initialized with the node name, which can be
+	// retrieved from an environment variable.
+	//
+	// if err := (&XdpProgramReconciler{
+	// 	NodeName: os.Getenv("NODE_NAME"),
+	// 	...
+	// }).SetupWithManager(mgr); err != nil { ... }
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&networkingv1alpha1.XdpProgram{}).
 		Named("xdpprogram").
