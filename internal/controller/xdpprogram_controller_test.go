@@ -47,6 +47,9 @@ var _ = Describe("XdpProgram Controller", func() {
 		xdpprogram := &networkingv1alpha1.XdpProgram{}
 
 		BeforeEach(func() {
+			if os.Getenv("GITHUB_ACTIONS") == "true" {
+				Skip("Skipping hardware-dependent tests in GitHub Actions")
+			}
 			By("creating the custom resource for the Kind XdpProgram")
 			err := k8sClient.Get(ctx, typeNamespacedName, xdpprogram)
 			if err != nil && errors.IsNotFound(err) {
@@ -119,7 +122,7 @@ var _ = Describe("XdpProgram Controller", func() {
 			dummyLinkName := "dummy0"
 			dummyLink := &netlink.Dummy{LinkAttrs: netlink.LinkAttrs{Name: dummyLinkName}}
 			Expect(netlink.LinkAdd(dummyLink)).To(Succeed())
-			defer netlink.LinkDel(dummyLink)
+			defer func() { _ = netlink.LinkDel(dummyLink) }()
 
 			// Update the resource to use the dummy interface but a non-existent bpf file.
 			xdpToUpdate := &networkingv1alpha1.XdpProgram{}
@@ -159,12 +162,12 @@ var _ = Describe("XdpProgram Controller", func() {
 			dummyLinkName := "dummy1"
 			dummyLink := &netlink.Dummy{LinkAttrs: netlink.LinkAttrs{Name: dummyLinkName}}
 			Expect(netlink.LinkAdd(dummyLink)).To(Succeed())
-			defer netlink.LinkDel(dummyLink)
+			defer func() { _ = netlink.LinkDel(dummyLink) }()
 
 			// Create an empty, invalid BPF file.
 			invalidBpfFile, err := os.CreateTemp("", "invalid-*.o")
 			Expect(err).NotTo(HaveOccurred())
-			defer os.Remove(invalidBpfFile.Name())
+			defer func() { _ = os.Remove(invalidBpfFile.Name()) }()
 
 			// Update the resource to use the dummy interface and the invalid BPF file.
 			xdpToUpdate := &networkingv1alpha1.XdpProgram{}
