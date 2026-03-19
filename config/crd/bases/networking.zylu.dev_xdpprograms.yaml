@@ -73,15 +73,20 @@ spec:
                 - native
                 - offload
                 type: string
+              nodeName:
+                description: |-
+                  NodeName is the name of the Kubernetes node where this XDP program should be attached.
+                  The operator's controller running on this node will reconcile this resource.
+                  This field is required.
+                type: string
             required:
             - bpfPath
             - interface
+            - nodeName
             type: object
           status:
             description: status defines the observed state of XdpProgram
             properties:
-              attachedAt:
-                type: string
               loadedAt:
                 description: LoadedAt records the timestamp of the last successful
                   program attachment.

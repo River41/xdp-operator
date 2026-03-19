@@ -7,7 +7,13 @@ metadata:
   name: xdpprogram-sample
 spec:
   # The network interface to attach the XDP program to.
-  interface: eth0
+  interface: enp2s0
+  # The name of the node where the XDP program should be attached.
+  # The controller on this node will handle the attachment.
+  # IMPORTANT: You must replace 'xdp-dev-control-plane' with a valid node name from your cluster
+  # (e.g., use `kubectl get nodes` to find one).
+  # You must also replace 'eth0' above with a real interface name from that node.
+  nodeName: xdp-dev-control-plane
   # Path to the BPF object file to be loaded.
   bpfPath: /tmp/hello.o
   # The attach mode for the XDP program (e.g., generic, native, offload).

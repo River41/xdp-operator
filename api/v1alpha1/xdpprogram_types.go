@@ -30,6 +30,12 @@ type XdpProgramSpec struct {
 	// +kubebuilder:validation:MinLength=1
 	Interface string `json:"interface"`
 
+	// NodeName is the name of the Kubernetes node where this XDP program should be attached.
+	// The operator's controller running on this node will reconcile this resource.
+	// This field is required.
+	// +kubebuilder:validation:Required
+	NodeName string `json:"nodeName"`
+
 	// BpfPath is the absolute path on the node to the compiled eBPF bytecode object file.
 	// +kubebuilder:validation:Required
 	BpfPath string `json:"bpfPath"`
@@ -56,9 +62,6 @@ type XdpProgramStatus struct {
 	// Message provides detailed status information, including any error messages.
 	// +optional
 	Message string `json:"message,omitempty"`
-
-	// +optional
-	AttachedAt string `json:"attachedAt,omitempty"`
 }
 
 // +kubebuilder:object:root=true
